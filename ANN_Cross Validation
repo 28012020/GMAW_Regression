@@ -1,0 +1,124 @@
+#Import Necessary Libraries..!!
+import pandas as d
+import matplotlib.pyplot as m
+import seaborn as sns
+import numpy as n
+n.random.seed(1337)
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from matplotlib import style
+m.style.use('ggplot')
+
+df=d.read_excel('/Users/ayush/Desktop/DATA_NEW.xlsx',engine="openpyxl")    # load data in the dataframe...!
+
+from sklearn.metrics import mean_absolute_error
+df.drop(['Sample No','AP','AR'],axis=1,inplace=True)
+df_repeated=df.iloc[26:32]
+df_repeated.describe()
+df.drop(df.index[26:32], axis=0,inplace=True)
+
+df2 = {'V':26, 'I': 210, 'WS': 6.0,'NPD':19,'G':19,'BW':8.52,'RH':3.31,'P':2.17,'%D':32.67,'Metal deposition (Kg/hr)':3.65}
+df_new = df.append(df2, ignore_index = True)
+display(df_new)
+
+X=df.loc[:,['V','I','WS','NPD','G']]         # Features!
+Y=df['Metal deposition (Kg/hr)']      # Target!
+
+# Copy of original X and Y!!
+X_copy=X
+Y_copy=Y
+
+from sklearn.preprocessing import StandardScaler
+Sx=StandardScaler()
+X = Sx.fit_transform(X)
+
+# DNN architecture..!!
+model = keras.Sequential([
+    layers.Dense(15, activation='selu', input_shape=[X.shape[1]]), # First hidden layer!
+    #layers.Dropout(0.1, seed=2),
+    layers.Dense(10, activation='selu'),
+    layers.Dense(5, activation='selu'),
+    layers.Dense(2, activation='selu'), 
+    layers.Dense(1,)                                              # Single 0utput neuron (Y)
+])
+
+#Selecting Optimizers..!
+optimizer = tf.keras.optimizers.Adam(learning_rate=0.01)  
+model.compile(loss=tf.keras.losses.MeanSquaredError(),optimizer=optimizer,metrics=['mae']) 
+model.summary()
+
+#Fitting the model..!
+history=model.fit(X,Y,epochs=300,validation_split=0.03,shuffle=True)    #Fitting and iterations..!!
+
+#Plotting Epocs..!
+model_history = d.DataFrame(history.history)
+model_history['epoch'] = history.epoch
+fig, ax = m.subplots(figsize=(6,6))
+num_epochs = model_history.shape[0]
+ax.plot(n.arange(0, num_epochs), model_history["loss"], label="Training loss", lw=3, color='#f4b400')
+ax.plot(n.arange(0, num_epochs), model_history["val_loss"], label="Validation loss", lw=3, color='#0f9d58')
+m.xlabel('Epochs',fontsize=13,fontweight='bold')
+m.ylabel('Loss (m.s.e)',fontsize=13,fontweight='bold')
+#m.title('Loss Curve')
+m.tight_layout()
+m.legend()
+m.savefig('Losscurve_MDR2.jpg',dpi=500)
+m.show()
+
+#Plotting Predictions..!
+test_pred1 = model.predict(X).flatten()
+m.figure(figsize=(6, 6))
+m.scatter(Y,test_pred1,label='Predicted',s=11,color='blue')
+m.xlabel('Metal Deposition Rate(MDR) ',fontsize=13,fontweight='bold')
+m.ylabel('Predicted (MDR)',fontsize=13,fontweight='bold')
+#m.title('Ra(Actual vs predicted)keras-ANN Model')
+m.plot(Y,Y,label='Actual',linestyle='dotted',linewidth=1,color='grey')
+m.legend()
+m.savefig('MDR_ANN2.jpg',dpi=250)
+m.show()
+
+df['pred_ANN']=test_pred1
+from sklearn.metrics import r2_score
+r2 = r2_score(df['BW'], df['pred_ANN'])
+print('r2 score for ANN model is', r2)
+
+df['error_percent']=((df['pred_ANN']-df['Metal deposition (Kg/hr)'])/df['Metal deposition (Kg/hr)'])*100
+print("The mean percentage error(absolute) in P is:", abs(df['error_percent']).mean()) 
+
+from sklearn.model_selection import KFold 
+import statistics
+
+k_fold = KFold(n_splits = 26, random_state = 42,shuffle=True)  
+mae_eachfold=[]    #for validation-data only..!!
+
+#Loop For LOOCV..!!
+for training_index, testing_index in k_fold.split(X):  
+    X_train, X_test = X[training_index,:], X[testing_index,:]  
+    Y_train, Y_test = Y.iloc[training_index] , Y.iloc[testing_index]  
+    
+    
+    model = keras.Sequential([
+    layers.Dense(15, activation='elu', input_shape=[X.shape[1]]), 
+    #layers.Dropout(0.1, seed=2),
+    layers.Dense(10, activation='elu'),
+    layers.Dense(5, activation='elu'),
+    layers.Dense(2, activation='elu'), 
+    layers.Dense(1,)                                              
+    ])
+    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.01)  
+    model.compile(loss=tf.keras.losses.MeanSquaredError(),optimizer=optimizer,metrics=['mae']) 
+    
+    
+    model.fit(X_train,Y_train,epochs=250,validation_data=(X_test,Y_test))
+    
+    
+    curr_prediction=model.predict(X_test)
+    curr_mae=mean_absolute_error(Y_test,curr_prediction)
+    
+    mae_eachfold.append(curr_mae)
+    
+print("AFter Cross Validation",'\n')
+print("mean of means is",sum(mae_eachfold) / len(mae_eachfold),"and standard deviation of means is:",
+      statistics.pstdev(mae_eachfold))
