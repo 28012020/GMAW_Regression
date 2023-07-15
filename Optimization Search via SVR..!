@@ -1,0 +1,179 @@
+# Necessary Imports..!
+import pandas as d
+import matplotlib.pyplot as m
+import seaborn as sns
+import numpy as n
+from matplotlib import style
+m.style.use('ggplot')
+
+df=d.read_excel('/Users/ayush/Desktop/DATA_NEW.xlsx',engine="openpyxl")   #loading experimental data in dataframe..!
+
+df.drop(['Sample No','AP','AR'],axis=1,inplace=True)
+
+df.columns=['V','I','WS','NPD','G','BW','RH','P','%D','MDR']
+
+df_repeated=df.iloc[26:32]
+df_repeated.describe()
+
+df.drop(df.index[26:32], axis=0,inplace=True)
+
+df2 = {'V':26,'I':210,'WS':6.0,'NPD':19,'G':19,'BW':8.52,'RH':3.61,'P':2.17,'%D':32.67,'MDR':3.65}
+df_new = df.append(df2, ignore_index = True)
+display(df_new)
+
+# Heat Map..!
+m.figure(figsize=(10,8))
+ax1 = sns.heatmap(df_new.corr(), vmin=-0.6, vmax=1,linewidths=1, cmap='YlGnBu',annot=True)
+ax1.set_yticklabels(labels=ax1.get_yticklabels(), va='center')
+#m.savefig("heatmap_last.jpg",dpi=500)
+m.show()
+
+X=df_new.loc[:,['V','I','WS','NPD','G']]         # Features!
+Y=df_new['%D']   # Target!
+
+# Copy of original X and Y!!
+X_copy=X
+Y_copy=Y
+
+from sklearn import preprocessing
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV
+from sklearn.svm import SVR
+
+#Feature Scaling..!
+Sx = StandardScaler()
+Sy= StandardScaler()
+X_t = Sx.fit_transform(X)   # using subscript "te" for testing!
+Y_t = Sy.fit_transform(Y.values.reshape(-1,1))
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error
+
+X_train, X_test, Y_train, Y_test = train_test_split(X_t, Y_t, test_size = 0.03, random_state =15)
+
+svr = SVR(kernel='rbf',C=5,epsilon=0.1)
+svr.fit(X_train, Y_train.ravel())  # ravel??
+
+y_predT = svr.predict(X_train) #T subscript for training and Te for testing!!
+y_predT = Sy.inverse_transform(y_predT.reshape(-1, 1)) 
+
+maeT = mean_absolute_error(Sy.inverse_transform(Y_train.reshape(-1, 1)), y_predT)
+print('MAE-Training = ', maeT)
+
+y_predTe = svr.predict(X_test) 
+y_predTe = Sy.inverse_transform(y_predTe.reshape(-1, 1)) 
+
+maeTe = mean_absolute_error(Sy.inverse_transform(Y_test.reshape(-1, 1)), y_predTe)
+print('MAE-Testing = ', maeTe)
+
+y_pref=svr.predict(X_t)   # Model predictions..!!
+y_pref=Sy.inverse_transform(y_pref.reshape(-1, 1))
+
+#Plotting Predictions..!
+m.figure(figsize=(6, 5))
+m.plot(Y_copy,Y_copy,label='actual',color='grey',linestyle=':')
+m.scatter(Y_copy,y_pref,label='predictions',s=10,color='red')
+m.xlabel("Actual BW",fontsize=13,fontweight='bold')
+m.ylabel("Predicted BW",fontsize=13,fontweight='bold')
+m.legend()
+#m.savefig("4_newws.png",dpi=150)
+m.show()
+
+
+#Grid search..!!
+param_grid = {'C': [0.001,0.01,0.1, 1,5,10,15,100,500,700,800,1000,1200,1400,1600,1800], 
+              'epsilon': [3,2,1, 0.1, 0.01, 0.001,0.001,0.0001,0.00001,0.000001],
+              'kernel': ['rbf']} 
+  
+grid = GridSearchCV(SVR(), param_grid, refit = True, verbose = 3)
+
+grid.fit(X_t, Y_t.ravel())
+
+print("best parameters are:",grid.best_params_)
+print("Best Model is:",grid.best_estimator_)
+
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import LeaveOneOut
+loo = LeaveOneOut()
+
+print("The number of splits are:",loo.get_n_splits(X))
+
+from sklearn.model_selection import KFold
+crossvalidation = KFold(n_splits=27, random_state=None, shuffle=False)
+
+scores = cross_val_score(svr, X_t, Y, scoring="neg_mean_absolute_error", cv=crossvalidation,n_jobs=1)
+print("Tha MAE scores for each fold is",scores)
+
+print("Folds: " + str(len(scores)) + ", Mean of MAE: " + str(n.mean(n.abs(scores))) + ", STD: " + str(n.std(scores)))
+
+# Optimization....!!
+import itertools
+import time
+def predict(v, i, ws, npd, g):    # Function that returns predicted value.
+    y_pref=svr.predict(Sx.transform([[v,i,ws,npd,g]])) 
+    y_pref=Sy.inverse_transform(y_pref.reshape(-1, 1))
+    return y_pref
+
+V = df_new['V'].unique()
+I = df_new['I'].unique()
+WS = df_new['WS'].unique()
+NPD = df_new['NPD'].unique()
+G = df_new['G'].unique()
+
+combinations = itertools.product(V, I, WS, NPD, G)     #Generate all possible combinations.
+lowest_prediction = float('inf')       #Initialize variables to track the lowest prediction value and its 
+lowest_combo = None                    #corresponding combination which is None.
+
+start = time.time_ns()                 #Record start time.
+for combo in combinations:            #Iterate over each combination.
+    v, i, ws, npd, g = combo
+    
+    prediction = predict(v, i, ws, npd, g)   #Makes prediction using optimized SVR model by calling predict function.
+    
+    if prediction < lowest_prediction:   #If the current prediction is lower than the lowest prediction so far.
+        lowest_prediction = prediction
+        lowest_combo = combo
+end = time.time_ns()       # Record end time.  
+
+print(f"Lowest Prediction: {lowest_prediction}")
+print(f"Optima_1 at: {lowest_combo}")
+
+t1=(end-start)/1000000000
+print("Time Taken:",t1,"seconds")
+
+
+def predict(v, i, ws, npd, g):    
+    y_pref=svr.predict(Sx.transform([[v,i,ws,npd,g]])) 
+    y_pref=Sy.inverse_transform(y_pref.reshape(-1, 1))
+    return y_pref
+
+#ZOOMING INTO NARROW BANDS OF PARMETERS.
+V = [24]
+I = [i for i in range(195,206)]
+WS = [5.6,5.8,6,6.2,6.4]     # Relatively weak corr with ws and hence narrow band.
+NPD = [18.2,18.4,18.6,18.7,18.8,19,19.2,18.4,19.6,19.8]   # Powerfully corellated with npd,wider band.
+G = [19]     # corr is very low for dilution!!
+
+combinations = itertools.product(V, I, WS, NPD, G)     
+lowest_prediction = float('inf')        
+lowest_combo = None                    
+
+start = time.time_ns()                 
+for combo in combinations:            
+    v, i, ws, npd, g = combo
+    prediction = predict(v, i, ws, npd, g)   
+    if prediction < lowest_prediction:   
+        lowest_prediction = prediction
+        lowest_combo = combo
+end = time.time_ns()        
+
+print(f"Lowest Prediction: {lowest_prediction}")
+print(f"Optima_2 at: {lowest_combo}")
+
+t2=(end-start)/1000000000
+
+print("Time Taken in zoom in:",t2,"seconds")
+print("Total Time Taken:",t1+t2,"seconds")
+
+
+
