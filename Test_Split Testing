@@ -1,0 +1,80 @@
+import pandas as d
+import matplotlib.pyplot as m
+import seaborn as sns
+import numpy as n
+from matplotlib import style
+from sklearn import preprocessing
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV
+from sklearn.svm import SVR
+from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_percentage_error
+from math import sqrt
+m.style.use('ggplot')
+
+df=d.read_excel('ritesh.xlsx',engine="openpyxl")
+
+df.drop(['Sample No','WPSF','WRFF'],axis=1,inplace=True)
+
+df_repeated=df.iloc[26:32]
+df_repeated.describe()
+df.drop(df.index[26:32], axis=0,inplace=True)
+df2 = {'V':26, 'I': 210, 'WS': 6.0,'NPD':19,'GFR':19,'BW':8.52,'RH':3.31,'P':2.17,'%D':32.67}
+df_new = df.append(df2, ignore_index = True)
+display(df_new)
+X=df_new.loc[:,['V','I','WS','NPD','GFR']]         # Features!
+Y=df_new['BW']   # Target!
+# Copy of original X and Y!!
+X_copy=X
+Y_copy=Y
+
+Sx = StandardScaler()
+Sy= StandardScaler()
+X_t = Sx.fit_transform(X)   # using subscript "te" for testing!
+Y_t = Sy.fit_transform(Y.values.reshape(-1,1))
+from sklearn.model_selection import train_test_split
+testing_mae=[]
+testing_rmse=[]
+
+
+split_percent=[0.4,0.3,0.25,0.2,0.15,0.1,0.05,0.03]
+
+split_percent.reverse()
+
+for i in split_percent:
+    
+    sum_maeTe=0      # Intiate sum=0 beform summing in random shuffles..!!
+    sum_rmseTe=0
+    
+    count=0
+    
+    for r_s in range(0,100,2):    # 50 random shuffles!!
+        
+        X_train, X_test, Y_train, Y_test = train_test_split(X_t, Y_t, test_size = i,random_state=r_s)
+    
+        svr = SVR(kernel='rbf',C=1.5,epsilon=0.01)
+        svr.fit(X_train, Y_train.ravel()) 
+    
+        y_predTe = svr.predict(X_test) 
+        y_predTe = Sy.inverse_transform(y_predTe.reshape(-1, 1)) 
+    
+        maeTe = mean_absolute_error(Sy.inverse_transform(Y_test.reshape(-1, 1)), y_predTe)
+        rmseTe = sqrt(mean_squared_error(Sy.inverse_transform(Y_test.reshape(-1, 1)), y_predTe))
+        
+        sum_maeTe+=maeTe       # Sum at all 50 random shuffles..!!
+        sum_rmseTe+=rmseTe
+        
+        count+=1
+        
+    testing_mae.append(sum_maeTe/count)    # Averaging..!!
+    testing_rmse.append(sum_rmseTe/count)
+
+m.figure(figsize=(5, 5))
+m.plot(split_percent,testing_mae,label='BW (m.a.e)',marker='o',linestyle=':')
+m.plot(split_percent,testing_rmse,label='BW (r.m.s.e)',marker='x',linestyle=':')
+m.xlim([0.41,0.02])
+m.xlabel("Test-Size",fontsize=13,fontweight='bold')
+m.ylabel("Errors",fontsize=13,fontweight='bold')
+m.legend()
+#m.savefig("16BW.jpg",dpi=2000)
